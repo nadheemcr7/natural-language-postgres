@@ -47,7 +47,7 @@ export async function seed() {
   console.log(`Created "unicorns" table`);
 
   const results: any[] = [];
-  const csvFilePath = path.join(process.cwd(), 'CB-Insights_Global-Unicorn-Club_2025.csv');
+  const csvFilePath = path.join(process.cwd(), 'unicorns.csv');
 
   await new Promise((resolve, reject) => {
     fs.createReadStream(csvFilePath)

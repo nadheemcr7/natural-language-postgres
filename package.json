@@ -5,11 +5,11 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbo",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
-    "seed": "tsx lib/seed.ts"
+    "dev": "pnpm next dev --turbo",
+    "build": "pnpm next build",
+    "start": "pnpm next start",
+    "lint": "pnpm next lint",
+    "seed": "pnpm tsx lib/seed.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^1.0.8",

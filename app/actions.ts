@@ -11,64 +11,105 @@ const getOpenAIModel = () => {
   if (!process.env.OPENAI_API_KEY) {
     throw new Error("OpenAI API key is not configured. Please set OPENAI_API_KEY in your .env file.");
   }
-  return openai("gpt-4");
+  
+  try {
+    const model = openai("gpt-3.5-turbo");
+    model.maxRetries = 0; // Disable retries to fail fast
+    return model;
+  } catch (e) {
+    if (e.message.includes('quota') || e.message.includes('billing')) {
+      throw new Error("OpenAI API quota exceeded. Please check your billing details or use a different API key.");
+    }
+    throw e;
+  }
 };
 
 export const generateQuery = async (input: string) => {
   "use server";
   try {
-    const result = await generateObject({
-      model: getOpenAIModel(),
-      system: `You are a SQL (postgres) and data visualization expert. Your job is to help the user write a SQL query to retrieve the data they need. The table schema is as follows:
-
-      unicorns (
-      id SERIAL PRIMARY KEY,
-      company VARCHAR(255) NOT NULL UNIQUE,
-      valuation DECIMAL(10, 2) NOT NULL,
-      date_joined DATE,
-      country VARCHAR(255) NOT NULL,
-      city VARCHAR(255) NOT NULL,
-      industry VARCHAR(255) NOT NULL,
-      select_investors TEXT NOT NULL
-    );
-
-    Only retrieval queries are allowed.
-
-    For things like industry, company names and other string fields, use the ILIKE operator and convert both the search term and the field to lowercase using LOWER() function. For example: LOWER(industry) ILIKE LOWER('%search_term%').
-
-    Note: select_investors is a comma-separated list of investors. Trim whitespace to ensure you're grouping properly. Note, some fields may be null or have only one value.
-    When answering questions about a specific field, ensure you are selecting the identifying column (ie. what is Vercel's valuation would select company and valuation').
-
-    The industries available are:
-    - healthcare & life sciences
-    - consumer & retail
-    - financial services
-    - enterprise tech
-    - insurance
-    - media & entertainment
-    - industrials
-    - health
-
-    If the user asks for a category that is not in the list, infer based on the list above.
-
-    Note: valuation is in billions of dollars so 10b would be 10.0.
-    Note: if the user asks for a rate, return it as a decimal. For example, 0.1 would be 10%.
-
-    If the user asks for 'over time' data, return by year.
-
-    When searching for UK or USA, write out United Kingdom or United States respectively.
-
-    EVERY QUERY SHOULD RETURN QUANTITATIVE DATA THAT CAN BE PLOTTED ON A CHART! There should always be at least two columns. If the user asks for a single column, return the column and the count of the column. If the user asks for a rate, return the rate as a decimal. For example, 0.1 would be 10%.
-    `,
-      prompt: `Generate the query necessary to retrieve the data the user wants: ${input}`,
-      schema: z.object({
-        query: z.string(),
-      }),
-    });
-    return result.object.query;
+    // Try OpenAI first if API key is valid
+    try {
+      const result = await generateObject({
+        model: getOpenAIModel(),
+        system: `You are a SQL (postgres) expert. Generate a SQL query to answer the user's question about unicorn companies. The table schema is:
+        unicorns (
+          id SERIAL PRIMARY KEY,
+          company VARCHAR(255) NOT NULL UNIQUE,
+          valuation DECIMAL(10, 2) NOT NULL,
+          date_joined DATE,
+          country VARCHAR(255) NOT NULL,
+          city VARCHAR(255) NOT NULL,
+          industry VARCHAR(255) NOT NULL,
+          select_investors TEXT NOT NULL
+        )`,
+        prompt: `Generate a SQL query for: ${input}`,
+        schema: z.object({
+          query: z.string()
+        })
+      });
+      return result.object.query;
+    } catch (e) {
+      if (e.message.includes('quota') || e.message.includes('billing')) {
+        console.warn('OpenAI quota exceeded, falling back to simple query generation');
+        console.log('To use advanced query generation, please update your OpenAI API key or billing details');
+        
+        // Fallback to keyword-based query generation
+        const keywords = input.toLowerCase().split(' ');
+        
+        if (keywords.includes('count') || keywords.includes('how many')) {
+          if (keywords.includes('industry')) {
+            return `SELECT industry, COUNT(*) as count FROM unicorns GROUP BY industry ORDER BY count DESC`;
+          } else if (keywords.includes('country')) {
+            return `SELECT country, COUNT(*) as count FROM unicorns GROUP BY country ORDER BY count DESC`;
+          } else {
+            return `SELECT 'total' as metric, COUNT(*) as count FROM unicorns`;
+          }
+        }
+        
+        if (keywords.includes('valuation') || keywords.includes('worth')) {
+          if (keywords.includes('highest') || keywords.includes('top')) {
+            return `SELECT company, valuation FROM unicorns ORDER BY valuation DESC LIMIT 10`;
+          } else if (keywords.includes('average') || keywords.includes('avg')) {
+            return `SELECT 'average' as metric, AVG(valuation) as value FROM unicorns`;
+          } else {
+            return `SELECT company, valuation FROM unicorns ORDER BY valuation DESC`;
+          }
+        }
+        
+        // Default fallback query
+        return 'SELECT company, valuation FROM unicorns LIMIT 50';
+      }
+      throw e;
+    }
+    
+    // Fallback to simple keyword-based query generation
+    const keywords = input.toLowerCase().split(' ');
+    
+    if (keywords.includes('count') || keywords.includes('how many')) {
+      if (keywords.includes('industry')) {
+        return `SELECT industry, COUNT(*) as count FROM unicorns GROUP BY industry ORDER BY count DESC`;
+      } else if (keywords.includes('country')) {
+        return `SELECT country, COUNT(*) as count FROM unicorns GROUP BY country ORDER BY count DESC`;
+      } else {
+        return `SELECT 'total' as metric, COUNT(*) as count FROM unicorns`;
+      }
+    }
+    
+    if (keywords.includes('valuation') || keywords.includes('worth')) {
+      if (keywords.includes('highest') || keywords.includes('top')) {
+        return `SELECT company, valuation FROM unicorns ORDER BY valuation DESC LIMIT 10`;
+      } else if (keywords.includes('average') || keywords.includes('avg')) {
+        return `SELECT 'average' as metric, AVG(valuation) as value FROM unicorns`;
+      } else {
+        return `SELECT company, valuation FROM unicorns ORDER BY valuation DESC`;
+      }
+    }
+    
+    // Default query if no specific pattern matched
+    return `SELECT company, valuation FROM unicorns LIMIT 50`;
   } catch (e) {
     console.error(e);
-    throw new Error("Failed to generate query");
+    throw new Error(`Failed to generate query: ${e.message}`);
   }
 };
 
@@ -199,7 +240,36 @@ export const generateChartConfig = async (
     const updatedConfig: Config = { ...config, colors };
     return { config: updatedConfig };
   } catch (e) {
-    // @ts-expect-errore
+    if (e.message.includes('quota') || e.message.includes('billing')) {
+      console.warn('OpenAI quota exceeded, using fallback chart configuration');
+      // Fallback to basic chart config when API quota is exceeded
+      if (!results || results.length === 0) {
+        return {
+          config: {
+            type: "bar",
+            xKey: "company",
+            yKeys: ["valuation"],
+            colors: {"valuation": "hsl(var(--chart-1))"},
+            legend: true
+          }
+        };
+      }
+      
+      const fallbackConfig: Config = {
+        type: "bar",
+        xKey: Object.keys(results[0])[0],
+        yKeys: Object.keys(results[0]).slice(1),
+        colors: {},
+        legend: true
+      };
+      
+      fallbackConfig.yKeys.forEach((key, index) => {
+        fallbackConfig.colors[key] = `hsl(var(--chart-${index + 1}))`;
+      });
+      
+      return { config: fallbackConfig };
+    }
+    
     console.error(e.message);
     throw new Error("Failed to generate chart suggestion");
   }
