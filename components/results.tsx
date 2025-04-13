@@ -1,3 +1,5 @@
+"use client";
+
 import { Config, Result, Unicorn } from "@/lib/types";
 import { DynamicChart } from "./dynamic-chart";
 import { SkeletonCard } from "./skeleton-card";
@@ -11,7 +13,7 @@ import {
 } from "./ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 
-export const Results = ({
+const Results = ({
   results,
   columns,
   chartConfig,
@@ -67,6 +69,7 @@ export const Results = ({
             Chart
           </TabsTrigger>
         </TabsList>
+
         <TabsContent value="table" className="flex-grow">
           <div className="sm:min-h-[10px] relative">
             <Table className="min-w-full divide-y divide-border">
@@ -83,7 +86,14 @@ export const Results = ({
                 </TableRow>
               </TableHeader>
               <TableBody className="bg-card divide-y divide-border">
-                {results.map((company, index) => (
+                {results.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={columns.length} className="text-center py-4 text-muted-foreground">
+                      No results found
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  results.map((company, index) => (
                   <TableRow key={index} className="hover:bg-muted">
                     {columns.map((column, cellIndex) => (
                       <TableCell
@@ -97,7 +107,7 @@ export const Results = ({
                       </TableCell>
                     ))}
                   </TableRow>
-                ))}
+                )))}
               </TableBody>
             </Table>
           </div>
@@ -115,3 +125,5 @@ export const Results = ({
     </div>
   );
 };
+
+export default Results;

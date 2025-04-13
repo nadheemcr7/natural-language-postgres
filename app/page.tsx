@@ -10,8 +10,8 @@ import {
 import { Config, Result } from "@/lib/types";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import Results from "@/components/results";
 import { ProjectInfo } from "@/components/project-info";
-import { Results } from "@/components/results";
 import { SuggestedQueries } from "@/components/suggested-queries";
 import { QueryViewer } from "@/components/query-viewer";
 import { Search } from "@/components/search";

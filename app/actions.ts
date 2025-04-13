@@ -2,15 +2,23 @@
 
 import { Config, configSchema, explanationsSchema, Result } from "@/lib/types";
 import { openai } from "@ai-sdk/openai";
-import { sql } from "@vercel/postgres";
+import { Client } from "pg";
 import { generateObject } from "ai";
 import { z } from "zod";
+
+// Configure OpenAI with error handling
+const getOpenAIModel = () => {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error("OpenAI API key is not configured. Please set OPENAI_API_KEY in your .env file.");
+  }
+  return openai("gpt-4");
+};
 
 export const generateQuery = async (input: string) => {
   "use server";
   try {
     const result = await generateObject({
-      model: openai("gpt-4o"),
+      model: getOpenAIModel(),
       system: `You are a SQL (postgres) and data visualization expert. Your job is to help the user write a SQL query to retrieve the data they need. The table schema is as follows:
 
       unicorns (
@@ -82,29 +90,38 @@ export const runGenerateSQLQuery = async (query: string) => {
     throw new Error("Only SELECT queries are allowed");
   }
 
-  let data: any;
+  const client = new Client({
+    host: process.env.POSTGRES_HOST,
+    port: Number(process.env.POSTGRES_PORT),
+    database: process.env.POSTGRES_DATABASE,
+    user: process.env.POSTGRES_USER,
+    password: process.env.POSTGRES_PASSWORD,
+    ssl: { rejectUnauthorized: false }
+  });
+  
   try {
-    data = await sql.query(query);
+    await client.connect();
+    const { rows } = await client.query(query);
+    return rows as Result[];
   } catch (e: any) {
     if (e.message.includes('relation "unicorns" does not exist')) {
       console.log(
         "Table does not exist, creating and seeding it with dummy data now...",
       );
-      // throw error
       throw Error("Table does not exist");
     } else {
       throw e;
     }
+  } finally {
+    await client.end();
   }
-
-  return data.rows as Result[];
 };
 
 export const explainQuery = async (input: string, sqlQuery: string) => {
   "use server";
   try {
     const result = await generateObject({
-      model: openai("gpt-4o"),
+      model: getOpenAIModel(),
       schema: z.object({
         explanations: explanationsSchema,
       }),
@@ -148,7 +165,7 @@ export const generateChartConfig = async (
 
   try {
     const { object: config } = await generateObject({
-      model: openai("gpt-4o"),
+      model: getOpenAIModel(),
       system,
       prompt: `Given the following data from a SQL query result, generate the chart config that best visualises the data and answers the users query.
       For multiple groups use multi-lines.
