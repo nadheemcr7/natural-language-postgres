@@ -1,11 +1,36 @@
-import { sql } from '@vercel/postgres';
 import fs from 'fs';
 import csv from 'csv-parser';
 import path from 'path';
-import "dotenv/config";
-import { Client } from 'pg'
+import 'dotenv/config';
+import { Client } from 'pg';
 
-function parseDate(dateString: string | undefined): string | null {
+interface UnicornData {
+  Company: string;
+  'Valuation ($B)': string;
+  'Date Joined': string;
+  Country: string;
+  City: string;
+  Industry: string;
+  'Select Investors': string;
+}
+
+function formatDate(dateString: string | undefined): string | null {
+  const formats = [
+    'YYYY-MM-DD',
+    'DD-MM-YY',
+    'DD/MM/YY',
+    'MM/DD/YY',
+    'MM-DD-YY'
+  ];
+
+  for (const format of formats) {
+    const parsedDate = moment(dateString, format);
+    if (parsedDate.isValid()) {
+      return parsedDate.format('YYYY-MM-DD');
+    }
+  }
+  return dateString;
+}
   if (!dateString) {
     console.warn(`Date string is undefined`);
     return null;
@@ -56,8 +81,19 @@ export async function seed() {
       .on('end', async () => {
         try {
           for (const row of results) {
-            if (!row.Company || !row['Valuation ($B)'] || !row.Country || !row.City || !row.Industry || !row['Select Investors']) {
-              console.warn('Skipping row with missing required fields:', row);
+            // Remove leading commas from all fields
+            const cleanRow = {
+              Company: row.Company ? row.Company.replace(/^\s*,/, '').trim() : '',
+              'Valuation ($B)': row['Valuation ($B)'] ? row['Valuation ($B)'].replace(/^\s*,/, '').trim() : '',
+              'Date Joined': row['Date Joined'] ? row['Date Joined'].replace(/^\s*,/, '').trim() : '',
+              Country: row.Country ? row.Country.replace(/^\s*,/, '').trim() : '',
+              City: row.City ? row.City.replace(/^\s*,/, '').trim() : '',
+              Industry: row.Industry ? row.Industry.replace(/^\s*,/, '').trim() : '',
+              'Select Investors': row['Select Investors'] ? row['Select Investors'].replace(/^\s*,/, '').trim() : ''
+            };
+
+            if (!cleanRow.Company || !cleanRow['Valuation ($B)'] || !cleanRow.Country || !cleanRow.City || !cleanRow.Industry || !cleanRow['Select Investors']) {
+              console.warn('Skipping row with missing required fields:', cleanRow);
               continue;
             }
             await client.query(
@@ -65,13 +101,13 @@ export async function seed() {
                VALUES ($1, $2, $3, $4, $5, $6, $7)
                ON CONFLICT (company) DO NOTHING`,
               [
-                row.Company.trim(),
-                parseFloat(row['Valuation ($B)']) * 1000,
-                parseDate(row['Date Joined']),
-                row.Country.trim(),
-                row.City.trim(),
-                row.Industry.trim(),
-                row['Select Investors'].trim()
+                cleanRow.Company,
+                parseFloat(cleanRow['Valuation ($B)']) * 1000,
+                formatDate(cleanRow['Date Joined']),
+                cleanRow.Country,
+                cleanRow.City,
+                cleanRow.Industry,
+                cleanRow['Select Investors']
               ]
             );
           }
